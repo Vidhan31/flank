@@ -1,0 +1,11 @@
+{
+  "name": "split-it",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Split It Browser Extension (Manifest V3)",
+  "scripts": {
+    "test": "node test/test-all.mjs && node test/test-split-adapter.mjs && node test/test-navigation-resolver.mjs && node test/test-content.mjs && node test/test-main-world.mjs && node test/test-popup-and-settings.mjs",
+    "lint:syntax": "node --check background.js content.js split-adapter.js navigation-resolver.js site-settings.js url-utils.js x-main-world.js popup.js"
+  },
+  "devDependencies": {}
+}

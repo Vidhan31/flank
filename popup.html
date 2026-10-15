@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Split It</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <div class="brand">
+      <img src="icons/icon48.png" alt="" class="brand-icon">
+      <span class="brand-name">Split It</span>
+    </div>
+
+    <div class="site-row">
+      <div class="site-info">
+        <div class="site-icon" id="site-icon-wrapper">
+          <span id="site-icon-fallback">🌐</span>
+        </div>
+        <span class="site-domain" id="site-domain">...</span>
+      </div>
+
+      <label class="switch" for="split-toggle" aria-label="Toggle Split It for this website">
+        <input type="checkbox" id="split-toggle" role="switch">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <script src="site-settings.js"></script>
+  <script src="url-utils.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
