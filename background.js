@@ -6,6 +6,15 @@ const SiteSettings = globalThis.SiteSettings;
 const urlUtils = globalThis.SplitViewUrlUtils || globalThis.RedditUrlUtils || {};
 const normalizePostUrl = urlUtils.normalizePostUrl || urlUtils.normalizeRedditPostUrl;
 
+function formatReaderUrl(url) {
+  if (!url) return url;
+  if (url.includes('split-reader')) return url;
+  if (url.includes('#')) {
+    return `${url}&split-reader`;
+  }
+  return `${url}#split-reader`;
+}
+
 class SplitSessionCoordinator {
   constructor(adapter = createDefaultSplitAdapter()) {
     this.adapter = adapter;
@@ -98,22 +107,24 @@ class SplitSessionCoordinator {
     return false;
   }
 
-  async openPost(browsingTabId, rawUrl) {
+  async openPost(browsingTabId, rawUrl, senderTab = null) {
     return this._enqueueTabAction(browsingTabId, async () => {
       await this.init();
 
-      try {
-        if (typeof chrome.tabs?.get === 'function') {
-          const browsingTab = await chrome.tabs.get(browsingTabId);
-          if (browsingTab?.url) {
-            const siteKey = SiteSettings?.getSiteKey ? SiteSettings.getSiteKey(browsingTab.url) : (urlUtils.getSiteKey ? urlUtils.getSiteKey(browsingTab.url) : '');
-            const isEnabled = SiteSettings?.isEnabled ? SiteSettings.isEnabled(siteKey, this.siteSettings) : (urlUtils.isSiteEnabled ? urlUtils.isSiteEnabled(siteKey, this.siteSettings) : true);
-            if (!isEnabled) {
-              return;
-            }
-          }
+      let browsingTab = senderTab && senderTab.id === browsingTabId && senderTab.url && senderTab.windowId !== undefined ? senderTab : null;
+      if (!browsingTab && typeof chrome.tabs?.get === 'function') {
+        try {
+          browsingTab = await chrome.tabs.get(browsingTabId);
+        } catch {}
+      }
+
+      if (browsingTab?.url) {
+        const siteKey = SiteSettings?.getSiteKey ? SiteSettings.getSiteKey(browsingTab.url) : (urlUtils.getSiteKey ? urlUtils.getSiteKey(browsingTab.url) : '');
+        const isEnabled = SiteSettings?.isEnabled ? SiteSettings.isEnabled(siteKey, this.siteSettings) : (urlUtils.isSiteEnabled ? urlUtils.isSiteEnabled(siteKey, this.siteSettings) : true);
+        if (!isEnabled) {
+          return;
         }
-      } catch {}
+      }
 
       const targetUrl = normalizePostUrl(rawUrl);
       if (!targetUrl) return;
@@ -127,42 +138,44 @@ class SplitSessionCoordinator {
       const readerInfo = this.browsingToReader.get(browsingTabId);
 
       if (readerInfo) {
-        const splitActive = await this.isSplitActive(browsingTabId, readerInfo.readerTabId);
-        if (splitActive) {
-          // If the post is already loaded in the reader, skip reloading
-          let isAlreadyLoaded = false;
-          try {
-            const currentReaderTab = await chrome.tabs.get(readerInfo.readerTabId);
-            const stripHash = (u) => (u ? u.split('#')[0] : '');
-            if (currentReaderTab?.url && stripHash(normalizePostUrl(currentReaderTab.url)) === stripHash(targetUrl)) {
-              isAlreadyLoaded = true;
-            }
-          } catch {
-            // Tab might be in flux or not accessible
-          }
+        let readerTab = null;
+        try {
+          readerTab = await chrome.tabs.get(readerInfo.readerTabId);
+        } catch {}
 
-          if (isAlreadyLoaded) {
+        if (readerTab) {
+          const splitActive = await this.isSplitActive(browsingTabId, readerInfo.readerTabId);
+          if (splitActive) {
+            // If the post is already loaded in the reader, skip reloading
+            const stripHash = (u) => (u ? u.split('#')[0] : '');
+            if (readerTab.url && stripHash(normalizePostUrl(readerTab.url)) === stripHash(targetUrl)) {
+              return;
+            }
+
+            // Navigate existing reader tab preserving reader marker
+            const readerUrl = formatReaderUrl(targetUrl);
+            await this.adapter.updateReader(readerInfo.readerTabId, readerUrl);
+
+            readerInfo.lastUrl = targetUrl;
+            await this.persist();
             return;
           }
-
-          // Navigate existing reader tab without refocusing
-          await this.adapter.updateReader(readerInfo.readerTabId, targetUrl);
-
-          readerInfo.lastUrl = targetUrl;
-          await this.persist();
-          return;
-        } else {
-          // Detach stale pairing if split was dissolved or closed
-          this.readerToBrowsing.delete(readerInfo.readerTabId);
-          this.browsingToReader.delete(browsingTabId);
-          await this.persist();
         }
+
+        // Detach stale pairing if split was dissolved or closed
+        this.readerToBrowsing.delete(readerInfo.readerTabId);
+        this.browsingToReader.delete(browsingTabId);
+        await this.persist();
       }
 
-      const browsingTab = await chrome.tabs.get(browsingTabId);
+      if (!browsingTab && typeof chrome.tabs?.get === 'function') {
+        try {
+          browsingTab = await chrome.tabs.get(browsingTabId);
+        } catch {}
+      }
       if (!browsingTab) return;
 
-      const readerUrl = targetUrl.includes('#') ? targetUrl : `${targetUrl}#split-reader`;
+      const readerUrl = formatReaderUrl(targetUrl);
 
       try {
         const readerTab = await this.adapter.pairSplit(browsingTab, readerUrl);
@@ -352,42 +365,6 @@ class SplitSessionCoordinator {
 
 const coordinator = new SplitSessionCoordinator();
 
-async function updateTabBadge(tabId, url) {
-  if (!tabId || !url || !chrome.action?.setBadgeText) return;
-  const siteKey = SiteSettings?.getSiteKey ? SiteSettings.getSiteKey(url) : (urlUtils.getSiteKey ? urlUtils.getSiteKey(url) : '');
-  const isSupported = SiteSettings?.isSupported ? SiteSettings.isSupported(url) : Boolean(siteKey && siteKey !== 'extensions');
-
-  if (!siteKey || !isSupported) {
-    chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
-    return;
-  }
-
-  const isEnabled = SiteSettings?.isEnabled
-    ? SiteSettings.isEnabled(siteKey, coordinator.siteSettings)
-    : (urlUtils.isSiteEnabled ? urlUtils.isSiteEnabled(siteKey, coordinator.siteSettings) : true);
-
-  const badgeText = isEnabled ? '' : 'OFF';
-  chrome.action.setBadgeText({ tabId, text: badgeText }).catch(() => {});
-  if (!isEnabled && chrome.action?.setBadgeBackgroundColor) {
-    chrome.action.setBadgeBackgroundColor({ tabId, color: '#ef4444' }).catch(() => {});
-  }
-}
-
-async function syncAllBadges() {
-  try {
-    if (typeof chrome.tabs?.query === 'function') {
-      const tabs = await chrome.tabs.query({});
-      for (const tab of tabs) {
-        if (tab.id && tab.url) {
-          await updateTabBadge(tab.id, tab.url);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Split It] Failed to sync badges:', err);
-  }
-}
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && (message.type === 'GET_TAB_ROLE' || message.type === 'GET_TAB_STATUS')) {
     const tabId = sender?.tab?.id;
@@ -404,7 +381,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === 'OPEN_POST' && message.url) {
     const browsingTabId = sender?.tab?.id;
     if (browsingTabId) {
-      coordinator.openPost(browsingTabId, message.url).then(() => {
+      coordinator.openPost(browsingTabId, message.url, sender?.tab).then(() => {
         sendResponse({ status: 'queued' });
       });
       return true;
@@ -432,33 +409,15 @@ if (chrome.storage?.onChanged?.addListener) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && changes.siteSettings) {
       coordinator.siteSettings = { ...(changes.siteSettings.newValue || {}) };
-      syncAllBadges();
     }
   });
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => coordinator.handleTabClosed(tabId));
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   coordinator.handleTabChange(tabId, changeInfo);
-  const url = changeInfo.url || (tab && tab.url);
-  if (url) {
-    updateTabBadge(tabId, url);
-  }
 });
-
-if (chrome.tabs?.onActivated?.addListener) {
-  chrome.tabs.onActivated.addListener(async (activeInfo) => {
-    try {
-      if (typeof chrome.tabs?.get === 'function') {
-        const tab = await chrome.tabs.get(activeInfo.tabId);
-        if (tab?.url) {
-          await updateTabBadge(tab.id, tab.url);
-        }
-      }
-    } catch {}
-  });
-}
 
 if (typeof globalThis !== 'undefined') {
   globalThis.SplitSessionCoordinator = SplitSessionCoordinator;

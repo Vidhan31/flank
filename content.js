@@ -128,6 +128,46 @@
     return null;
   }
 
+  let activePostEl = null;
+
+  function highlightActivePost(eventTarget) {
+    if (!eventTarget || !(eventTarget instanceof Element)) return;
+    try {
+      const card = eventTarget.closest?.('shreddit-post, [data-testid="post-container"], article[data-testid="tweet"], article');
+      if (card) {
+        if (activePostEl && activePostEl !== card) {
+          try {
+            activePostEl.removeAttribute('data-split-active-post');
+          } catch {}
+        }
+        if (typeof document !== 'undefined') {
+          if (!document.getElementById('split-it-active-style')) {
+            const style = document.createElement('style');
+            style.id = 'split-it-active-style';
+            style.textContent = `
+              [data-split-active-post="true"] {
+                outline: 2px solid #38bdf8 !important;
+                outline-offset: -1px !important;
+                border-radius: 8px !important;
+                transition: outline 0.15s ease !important;
+              }
+            `;
+            (document.head || document.documentElement).appendChild(style);
+          }
+          if (typeof document.querySelectorAll === 'function') {
+            document.querySelectorAll('[data-split-active-post="true"]').forEach((el) => {
+              if (el !== card) {
+                el.removeAttribute('data-split-active-post');
+              }
+            });
+          }
+        }
+        card.setAttribute('data-split-active-post', 'true');
+        activePostEl = card;
+      }
+    } catch {}
+  }
+
   function handlePostClick(event) {
     if (!isSplitItEnabled || isReaderTab()) {
       // Allow native navigation in reader tab or when disabled
@@ -140,6 +180,8 @@
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+
+    highlightActivePost(event.target);
 
     try {
       chrome.runtime.sendMessage(
@@ -164,6 +206,7 @@
   const exportObj = {
     resolvePostNavigation,
     handlePostClick,
+    highlightActivePost,
     isReaderTab,
     getIsReaderTab: () => isReaderTab(),
     setIsReaderTab: (val) => {

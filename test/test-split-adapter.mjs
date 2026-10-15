@@ -133,6 +133,10 @@ function resetMocks() {
   const readerTab2 = await adapter.pairSplit(feedTab, 'https://example.com/fallback2');
   assert.strictEqual(readerTab2.index, 6);
 
+  // isSplitActive correctly delegates to fallback adapter
+  const isActive = await adapter.isSplitActive(feedTab.id, readerTab2.id);
+  assert.strictEqual(isActive, true, 'isSplitActive must delegate to fallback adapter when useFallback is true');
+
   console.log('✓ DynamicSplitAdapter fallback tests passed');
 }
 

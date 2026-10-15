@@ -160,7 +160,34 @@ class DynamicSplitAdapter extends SplitTabAdapter {
   }
 
   async isSplitActive(feedTabId, readerTabId) {
-    return await this.nativeAdapter.isSplitActive(feedTabId, readerTabId);
+    try {
+      const [browsingTab, readerTab] = await Promise.all([
+        chrome.tabs.get(feedTabId),
+        chrome.tabs.get(readerTabId)
+      ]);
+
+      if (!browsingTab || !readerTab) return false;
+      if (browsingTab.windowId !== readerTab.windowId) return false;
+
+      const splitNone = chrome.tabs?.SPLIT_VIEW_ID_NONE !== undefined ? chrome.tabs.SPLIT_VIEW_ID_NONE : -1;
+
+      if (typeof browsingTab.splitViewId === 'number' && typeof readerTab.splitViewId === 'number') {
+        if (browsingTab.splitViewId !== splitNone && readerTab.splitViewId !== splitNone) {
+          return browsingTab.splitViewId === readerTab.splitViewId;
+        }
+        if (this.useFallback && typeof browsingTab.index === 'number' && typeof readerTab.index === 'number') {
+          return readerTab.index === browsingTab.index + 1;
+        }
+        return false;
+      }
+
+      if (this.useFallback) {
+        return await this.fallbackAdapter.isSplitActive(feedTabId, readerTabId);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

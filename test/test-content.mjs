@@ -32,6 +32,10 @@ class MockElement {
     this.attrs[name] = val;
   }
 
+  removeAttribute(name) {
+    delete this.attrs[name];
+  }
+
   matches(selector) {
     const parts = selector.split(',').map((s) => s.trim());
     for (const part of parts) {
@@ -463,6 +467,46 @@ const dom = createTweetDOM();
   assert.strictEqual(resolvedHeader, null, 'Header link on generic site must not be intercepted');
 
   console.log('✓ Generic website content script navigation and safety filters verified');
+}
+
+// 18. Active post visual highlight
+{
+  window.location.origin = 'https://x.com';
+  window.location.hostname = 'x.com';
+  window.location.href = 'https://x.com/home';
+  contentScript.setIsSplitItEnabled(true);
+  contentScript.setIsReaderTab(false);
+
+  const clickEvent = mockEvent(dom.tweetText);
+  contentScript.handlePostClick(clickEvent);
+  assert.strictEqual(
+    dom.tweetArticle.getAttribute('data-split-active-post'),
+    'true',
+    'Clicked tweet card must receive data-split-active-post="true"'
+  );
+
+  // Clicking another element moves the highlight
+  const tweetArticle2 = new MockElement('article', { 'data-testid': 'tweet' });
+  const tweetText2 = new MockElement('div', { textContent: 'Second tweet' });
+  const timeAnchor = new MockElement('a', { href: 'https://x.com/user/status/222222' });
+  const timeEl = new MockElement('time');
+  timeAnchor.appendChild(timeEl);
+  tweetArticle2.appendChild(tweetText2);
+  tweetArticle2.appendChild(timeAnchor);
+
+  const clickEvent2 = mockEvent(tweetText2);
+  contentScript.handlePostClick(clickEvent2);
+  assert.strictEqual(
+    tweetArticle2.getAttribute('data-split-active-post'),
+    'true',
+    'Second clicked tweet card must receive data-split-active-post="true"'
+  );
+  assert.strictEqual(
+    dom.tweetArticle.getAttribute('data-split-active-post'),
+    null,
+    'Previous tweet card must have data-split-active-post removed'
+  );
+  console.log('✓ Active post visual indicator attaches and transfers correctly');
 }
 
 console.log('✓ All content script interaction tests passed!');

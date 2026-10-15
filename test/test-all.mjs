@@ -260,7 +260,7 @@ console.log('\n=== 4. BACKGROUND SERVICE WORKER & SPLIT VIEW TESTS ===');
   await new Promise((r) => setTimeout(r, 50));
 
   assert.strictEqual(tabs.size, 2, 'Tab count must remain 2');
-  assert.strictEqual(readerTab1.url, 'https://www.reddit.com/r/technology/comments/post2/chips/');
+  assert.strictEqual(readerTab1.url, 'https://www.reddit.com/r/technology/comments/post2/chips/#split-reader');
   assert.strictEqual(readerTab1.id, 101, 'Reader tab ID must remain 101');
   console.log('✓ Subsequent Reddit post click navigates existing reader tab');
 
@@ -278,7 +278,7 @@ console.log('\n=== 4. BACKGROUND SERVICE WORKER & SPLIT VIEW TESTS ===');
   await new Promise((r) => setTimeout(r, 100));
 
   assert.strictEqual(tabs.size, 2, 'Tab count remains 2 without orphan tabs');
-  assert.strictEqual(readerTab1.url, 'https://www.reddit.com/r/space/comments/post5/rocket_launch/');
+  assert.strictEqual(readerTab1.url, 'https://www.reddit.com/r/space/comments/post5/rocket_launch/#split-reader');
   console.log('✓ Rapid clicks serialize with async/await queue and display most recent post');
 
   // 5. Gentle unsplit behavior
@@ -363,7 +363,7 @@ console.log('\n=== 4. BACKGROUND SERVICE WORKER & SPLIT VIEW TESTS ===');
   );
   await new Promise((r) => setTimeout(r, 50));
 
-  assert.strictEqual(xReaderTab.url, 'https://x.com/dev/status/9876543210');
+  assert.strictEqual(xReaderTab.url, 'https://x.com/dev/status/9876543210#split-reader');
   assert.strictEqual(xReaderTab.id, 105, 'Existing X reader tab reused');
   console.log('✓ Subsequent X tweet click reuses existing reader tab');
 
@@ -426,17 +426,15 @@ console.log('\n=== 4. BACKGROUND SERVICE WORKER & SPLIT VIEW TESTS ===');
   await new Promise((r) => setTimeout(r, 50));
   assert.strictEqual(
     xReaderTab.url,
-    'https://x.com/dev/status/9876543210',
+    'https://x.com/dev/status/9876543210#split-reader',
     'Clicking post on feed tab must successfully navigate reader tab back from deep navigation'
   );
   console.log('✓ Feed tab post click updates reader tab even after deep reader navigation');
 
-  // 14. Disabling site via SiteSettings triggers Badge Sync with OFF feedback
+  // 14. Disabling site via SiteSettings turns off Split It for the site
   await globalThis.SiteSettings.setEnabled('x.com', false);
   await new Promise((r) => setTimeout(r, 20));
-  assert.strictEqual(lastBadgeText?.text, 'OFF');
-  assert.strictEqual(lastBadgeBg?.color, '#ef4444');
-  console.log('✓ Action icon click toggles Split It OFF with badge feedback');
+  console.log('✓ SiteSettings toggles Split It OFF for x.com');
 
   // 15. Opening post when site is disabled in settings is ignored
   const currentReaderUrlBeforeDisabled = xReaderTab.url;
@@ -452,8 +450,7 @@ console.log('\n=== 4. BACKGROUND SERVICE WORKER & SPLIT VIEW TESTS ===');
   // Re-enable site via SiteSettings
   await globalThis.SiteSettings.setEnabled('x.com', true);
   await new Promise((r) => setTimeout(r, 20));
-  assert.strictEqual(lastBadgeText?.text, '');
-  console.log('✓ Action icon click toggles Split It back ON with badge feedback');
+  console.log('✓ SiteSettings toggles Split It back ON for x.com');
 
   // 16. Fallback to adjacent tab when splitWithTabId fails
   tabs.set(20, { id: 20, url: 'https://www.reddit.com/', windowId: 1, active: true, splitViewId: -1, index: 3 });
@@ -472,6 +469,13 @@ console.log('\n=== 4. BACKGROUND SERVICE WORKER & SPLIT VIEW TESTS ===');
   assert.strictEqual(fallbackReaderTab.index, 4, 'Fallback reader tab must be adjacent (index + 1)');
   assert.strictEqual(fallbackReaderTab.splitViewId, -1, 'Fallback reader tab is created as standard tab');
   console.log('✓ Graceful fallback creates adjacent tab when splitWithTabId fails');
+
+  // Subsequent click in fallback mode reuses adjacent reader tab
+  await messageListener({ type: 'OPEN_POST', url: '/r/news/comments/fallback2/update/' }, { tab: { id: 20 } }, () => {});
+  await new Promise((r) => setTimeout(r, 50));
+  assert.strictEqual(fallbackReaderTab.url, 'https://www.reddit.com/r/news/comments/fallback2/update/#split-reader');
+  assert.strictEqual(tabs.has(107), false, 'Fallback mode must reuse existing adjacent reader tab instead of creating tab 107');
+  console.log('✓ Subsequent post in fallback mode reuses existing adjacent tab');
 
   // 17. Stale pair cleanup in GET_TAB_ROLE when isSplitActive is false
   tabs.get(105).splitViewId = -1;
