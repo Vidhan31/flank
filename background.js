@@ -403,7 +403,193 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+  if (message && message.type === 'REGISTER_GENERIC_SITE' && message.siteKey) {
+    registerGenericSite(message.siteKey).then(() => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (message && message.type === 'UNREGISTER_GENERIC_SITE' && message.siteKey) {
+    unregisterGenericSite(message.siteKey).then(() => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
 });
+
+const SCRIPT_ID_PREFIX = SiteSettings?.SCRIPT_ID_PREFIX || 'split-it-site-';
+
+function getSiteScriptId(siteKey) {
+  if (SiteSettings?.getScriptId) {
+    return SiteSettings.getScriptId(siteKey);
+  }
+  const key = SiteSettings?.getSiteKey ? SiteSettings.getSiteKey(siteKey) : (siteKey || '');
+  return SCRIPT_ID_PREFIX + key.replace(/[^a-z0-9_-]/g, '-');
+}
+
+function getSitePatterns(siteKey) {
+  if (SiteSettings?.getSitePatterns) {
+    return SiteSettings.getSitePatterns(siteKey);
+  }
+  const key = SiteSettings?.getSiteKey ? SiteSettings.getSiteKey(siteKey) : (siteKey || '');
+  if (!key) return [];
+  if (key === 'localhost' || /^(\d{1,3}\.){3}\d{1,3}$/.test(key) || key.includes(':')) {
+    return [`*://${key}/*`];
+  }
+  return [`*://*.${key}/*`, `*://${key}/*`];
+}
+
+async function registerGenericSite(siteKey) {
+  if (!siteKey) return;
+  const scriptId = getSiteScriptId(siteKey);
+  const patterns = getSitePatterns(siteKey);
+  if (!patterns.length || !chrome.scripting?.registerContentScripts) return;
+
+  try {
+    if (chrome.scripting?.getRegisteredContentScripts) {
+      const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [scriptId] });
+      if (existing && existing.length > 0) {
+        await chrome.scripting.unregisterContentScripts({ ids: [scriptId] });
+      }
+    }
+    await chrome.scripting.registerContentScripts([
+      {
+        id: scriptId,
+        matches: patterns,
+        js: [
+          'site-settings.js',
+          'url-utils.js',
+          'navigation-resolver.js',
+          'content.js'
+        ],
+        runAt: 'document_start',
+        persistAcrossSessions: true
+      }
+    ]);
+  } catch (err) {
+    console.warn('[Split It] Failed to register generic site script:', err);
+  }
+}
+
+async function unregisterGenericSite(siteKey) {
+  if (!siteKey) return;
+  const scriptId = getSiteScriptId(siteKey);
+  if (chrome.scripting?.unregisterContentScripts) {
+    try {
+      await chrome.scripting.unregisterContentScripts({ ids: [scriptId] });
+    } catch (err) {
+      console.warn('[Split It] Failed to unregister generic site script:', err);
+    }
+  }
+}
+
+async function syncRegisteredScriptsWithPermissions() {
+  try {
+    if (!chrome.scripting?.getRegisteredContentScripts || !chrome.permissions?.contains) {
+      return;
+    }
+
+    const registered = await chrome.scripting.getRegisteredContentScripts();
+    const splitItScripts = registered.filter((s) => s.id && s.id.startsWith(SCRIPT_ID_PREFIX));
+
+    for (const script of splitItScripts) {
+      let hasPerms = false;
+      try {
+        hasPerms = await chrome.permissions.contains({ origins: script.matches });
+      } catch {
+        hasPerms = false;
+      }
+
+      if (!hasPerms) {
+        try {
+          await chrome.scripting.unregisterContentScripts({ ids: [script.id] });
+        } catch {}
+
+        let siteKey = '';
+        if (script.matches && script.matches.length > 0) {
+          for (const pattern of script.matches) {
+            const match = pattern.match(/^[a-z*]+:\/\/(?:\*\.)?([^\/:]+)/i);
+            if (match && match[1]) {
+              siteKey = SiteSettings?.getSiteKey ? SiteSettings.getSiteKey(match[1]) : match[1];
+              break;
+            }
+          }
+        }
+        if (!siteKey && script.id) {
+          siteKey = script.id.slice(SCRIPT_ID_PREFIX.length);
+        }
+
+        if (siteKey) {
+          if (SiteSettings?.setEnabled) {
+            await SiteSettings.setEnabled(siteKey, false);
+          }
+          if (coordinator?.siteSettings) {
+            coordinator.siteSettings[siteKey] = false;
+          }
+        }
+      }
+    }
+
+    let allSettings = {};
+    if (SiteSettings?.getAllSettings) {
+      allSettings = await SiteSettings.getAllSettings();
+    } else if (chrome.storage?.local) {
+      const data = await chrome.storage.local.get(['siteSettings']);
+      allSettings = data?.siteSettings || {};
+    }
+
+    for (const [key, enabled] of Object.entries(allSettings)) {
+      if (enabled && key !== 'reddit.com' && key !== 'x.com' && key !== 'twitter.com') {
+        const patterns = getSitePatterns(key);
+        let hasPerms = false;
+        try {
+          hasPerms = await chrome.permissions.contains({ origins: patterns });
+        } catch {
+          hasPerms = false;
+        }
+
+        if (!hasPerms) {
+          if (SiteSettings?.setEnabled) {
+            await SiteSettings.setEnabled(key, false);
+          }
+          if (coordinator?.siteSettings) {
+            coordinator.siteSettings[key] = false;
+          }
+          await unregisterGenericSite(key);
+        } else {
+          const scriptId = getSiteScriptId(key);
+          const isRegistered = splitItScripts.some((s) => s.id === scriptId);
+          if (!isRegistered) {
+            await registerGenericSite(key);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Split It] Failed syncing registered scripts with permissions:', err);
+  }
+}
+
+if (chrome.permissions?.onRemoved?.addListener) {
+  chrome.permissions.onRemoved.addListener(() => {
+    syncRegisteredScriptsWithPermissions();
+  });
+}
+
+if (chrome.runtime?.onInstalled?.addListener) {
+  chrome.runtime.onInstalled.addListener(() => {
+    syncRegisteredScriptsWithPermissions();
+  });
+}
+
+if (chrome.runtime?.onStartup?.addListener) {
+  chrome.runtime.onStartup.addListener(() => {
+    syncRegisteredScriptsWithPermissions();
+  });
+}
+
+syncRegisteredScriptsWithPermissions();
 
 if (chrome.storage?.onChanged?.addListener) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -413,15 +599,28 @@ if (chrome.storage?.onChanged?.addListener) {
   });
 }
 
-chrome.tabs.onRemoved.addListener((tabId) => coordinator.handleTabClosed(tabId));
+if (chrome.tabs?.onRemoved?.addListener) {
+  chrome.tabs.onRemoved.addListener((tabId) => coordinator.handleTabClosed(tabId));
+}
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  coordinator.handleTabChange(tabId, changeInfo);
-});
+if (chrome.tabs?.onUpdated?.addListener) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    coordinator.handleTabChange(tabId, changeInfo);
+  });
+}
 
 if (typeof globalThis !== 'undefined') {
   globalThis.SplitSessionCoordinator = SplitSessionCoordinator;
   globalThis.splitSessionCoordinator = coordinator;
+  globalThis.registerGenericSite = registerGenericSite;
+  globalThis.unregisterGenericSite = unregisterGenericSite;
+  globalThis.syncRegisteredScriptsWithPermissions = syncRegisteredScriptsWithPermissions;
 }
 
-export { SplitSessionCoordinator, coordinator };
+export {
+  SplitSessionCoordinator,
+  coordinator,
+  registerGenericSite,
+  unregisterGenericSite,
+  syncRegisteredScriptsWithPermissions
+};

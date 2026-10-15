@@ -1,6 +1,11 @@
 (function () {
   'use strict';
 
+  if (typeof window !== 'undefined') {
+    if (window.__splitItContentScriptInjected) return;
+    window.__splitItContentScriptInjected = true;
+  }
+
   const urlUtils = globalThis.SplitViewUrlUtils || {};
 
   // Persist reader role marker if hash is present at document_start

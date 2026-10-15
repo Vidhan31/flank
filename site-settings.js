@@ -51,6 +51,26 @@
     }
   }
 
+  const SCRIPT_ID_PREFIX = 'split-it-site-';
+
+  function getSitePatterns(siteKeyOrUrl) {
+    const key = getSiteKey(siteKeyOrUrl);
+    if (!key) return [];
+    if (key === 'localhost' || /^(\d{1,3}\.){3}\d{1,3}$/.test(key) || key.includes(':')) {
+      return [`*://${key}/*`];
+    }
+    return [
+      `*://*.${key}/*`,
+      `*://${key}/*`
+    ];
+  }
+
+  function getScriptId(siteKeyOrUrl) {
+    const key = getSiteKey(siteKeyOrUrl);
+    if (!key) return '';
+    return SCRIPT_ID_PREFIX + key.replace(/[^a-z0-9_-]/g, '-');
+  }
+
   function isDefaultEnabled(siteKeyOrUrl) {
     const key = getSiteKey(siteKeyOrUrl);
     if (!key) return false;
@@ -210,7 +230,10 @@
   }
 
   const SiteSettings = {
+    SCRIPT_ID_PREFIX,
     getSiteKey,
+    getSitePatterns,
+    getScriptId,
     isSupported,
     isDefaultEnabled,
     getDisplayName,

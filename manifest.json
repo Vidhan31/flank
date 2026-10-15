@@ -5,7 +5,8 @@
   "description": "Browse feeds in the left pane while opening selected posts in the browser's native Split View.",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -17,7 +18,15 @@
     "default_title": "Split It"
   },
   "host_permissions": [
-    "<all_urls>"
+    "https://*.reddit.com/*",
+    "https://reddit.com/*",
+    "https://*.x.com/*",
+    "https://x.com/*",
+    "https://*.twitter.com/*",
+    "https://twitter.com/*"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -39,8 +48,12 @@
     },
     {
       "matches": [
-        "http://*/*",
-        "https://*/*"
+        "https://*.reddit.com/*",
+        "https://reddit.com/*",
+        "https://*.x.com/*",
+        "https://x.com/*",
+        "https://*.twitter.com/*",
+        "https://twitter.com/*"
       ],
       "js": [
         "site-settings.js",
