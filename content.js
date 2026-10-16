@@ -138,7 +138,11 @@
   function highlightActivePost(eventTarget) {
     if (!eventTarget || !(eventTarget instanceof Element)) return;
     try {
-      const card = eventTarget.closest?.('shreddit-post, [data-testid="post-container"], article[data-testid="tweet"], article');
+      const card =
+        eventTarget.closest?.(
+          'shreddit-post, [data-testid="post-container"], article[data-testid="tweet"], article, [role="article"], .card, .post, .entry, .story, tr.athing, .feed-item, [role="listitem"]'
+        ) ||
+        eventTarget.closest?.('a, [role="link"]');
       if (card) {
         if (activePostEl && activePostEl !== card) {
           try {

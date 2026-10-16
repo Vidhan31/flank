@@ -419,6 +419,189 @@
     return null;
   }
 
+  function isCardOrArticleContainer(el) {
+    if (!el || !(el instanceof Element)) return false;
+    return Boolean(
+      el.tagName === 'ARTICLE' ||
+      el.getAttribute?.('role') === 'article' ||
+      el.getAttribute?.('role') === 'listitem' ||
+      el.matches?.(
+        'article, [role="article"], .card, .post, .entry, .story, tr.athing, .feed-item, [role="listitem"], [data-testid*="post" i], [data-testid*="story" i], [data-testid*="card" i], [data-testid*="item" i]'
+      )
+    );
+  }
+
+  function isSiteNavigationLandmark(el) {
+    if (!el || !(el instanceof Element)) return false;
+
+    if (
+      el.matches?.(
+        'nav, form, [role="navigation"], [role="menubar"], [role="menu"], [role="search"], .navbar, .topbar, .site-header, .site-nav, .pagetop, [role="pagination"], [aria-label*="pagination" i], [aria-label*="breadcrumb" i], nav[aria-label*="breadcrumb" i], [class*="breadcrumb" i], .pagination, .morelink'
+      )
+    ) {
+      return true;
+    }
+
+    if (el.tagName === 'HEADER') {
+      if (el.getAttribute?.('role') === 'banner') return true;
+      if (el.parentElement?.tagName === 'BODY') return true;
+      if (!el.closest?.('article, [role="article"], .card, .post, .entry, .story, tr.athing, .feed-item, [role="listitem"]')) {
+        return true;
+      }
+    }
+
+    if (el.tagName === 'FOOTER') {
+      if (el.getAttribute?.('role') === 'contentinfo') return true;
+      if (el.parentElement?.tagName === 'BODY') return true;
+      if (!el.closest?.('article, [role="article"], .card, .post, .entry, .story, tr.athing, .feed-item, [role="listitem"]')) {
+        return true;
+      }
+    }
+
+    if (el.tagName === 'ASIDE') {
+      if (el.parentElement?.tagName === 'BODY' && !el.querySelector?.('article, [role="article"], .card, .post, .entry, .story')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function isAuthorElementOrLink(anchor, parsedUrl, anchorText) {
+    if (isCommentsOrDiscussionLink(anchor, parsedUrl, anchorText)) {
+      return false;
+    }
+
+    if (
+      anchor.matches?.(
+        '[rel*="author"], .author, [itemprop="author"], [data-testid*="author" i], .hnuser, .u-author, [class*="author" i]'
+      ) ||
+      anchor.closest?.(
+        '[rel*="author"], .author, [itemprop="author"], [data-testid*="author" i], [class*="author" i]'
+      )
+    ) {
+      return true;
+    }
+    const path = parsedUrl.pathname.toLowerCase();
+    if (/^\/(?:user|u|author|profile|member)\/[a-zA-Z0-9_.-]+\/?$/.test(path)) {
+      return true;
+    }
+    if (parsedUrl.searchParams?.has('user') || (parsedUrl.searchParams?.has('id') && path.endsWith('/user'))) {
+      return true;
+    }
+    return false;
+  }
+
+  function isTaxonomyElementOrLink(anchor, parsedUrl) {
+    if (
+      anchor.matches?.(
+        '[rel*="tag"], [rel*="category"], .tag, .category, .label, [class*="tag" i], [class*="category" i]'
+      ) ||
+      anchor.closest?.(
+        '[rel*="tag"], [rel*="category"], .tags, .categories, [class*="tags" i], [class*="categories" i]'
+      )
+    ) {
+      return true;
+    }
+    const path = parsedUrl.pathname.toLowerCase();
+    if (/^\/(?:tag|tags|category|categories|topics|label|labels|t)\/[a-zA-Z0-9_.-]+\/?$/.test(path)) {
+      return true;
+    }
+    return false;
+  }
+
+  function isSocialShareOrActionUrl(parsedUrl) {
+    const host = parsedUrl.hostname.toLowerCase();
+    if (
+      ((host === 'twitter.com' || host === 'x.com') && parsedUrl.pathname.startsWith('/intent/')) ||
+      (host.includes('facebook.com') && parsedUrl.pathname.startsWith('/sharer')) ||
+      (host.includes('linkedin.com') && parsedUrl.pathname.includes('/share')) ||
+      (host.includes('reddit.com') && parsedUrl.pathname.startsWith('/submit')) ||
+      (host.includes('pinterest.com') && parsedUrl.pathname.startsWith('/pin/create')) ||
+      (host.includes('whatsapp.com') && parsedUrl.pathname.startsWith('/send'))
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function isCommentsOrDiscussionLink(anchor, parsedUrl, anchorText) {
+    if (/\b(?:\d+\s+)?(?:comments?|replies|notes|discuss|view discussion|read comments|leave a comment)\b/i.test(anchorText)) {
+      return true;
+    }
+    if (
+      (parsedUrl.pathname === '/item' || parsedUrl.pathname.endsWith('/item')) &&
+      parsedUrl.searchParams.has('id')
+    ) {
+      return true;
+    }
+    if (/\/s\/[a-zA-Z0-9_-]+\/[^/]+/i.test(parsedUrl.pathname)) {
+      return true;
+    }
+    const path = parsedUrl.pathname.toLowerCase();
+    if (
+      path.includes('/comments/') ||
+      path.includes('/discussion/') ||
+      path.includes('/thread/') ||
+      path.includes('/topic/')
+    ) {
+      return true;
+    }
+    if (
+      parsedUrl.hash === '#comments' ||
+      parsedUrl.hash === '#respond' ||
+      parsedUrl.hash === '#discussion' ||
+      parsedUrl.hash.startsWith('#comment-')
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function isReadMoreOrPermalink(anchor, anchorText) {
+    if (/\b(?:read more|full story|continue reading|read article|view post|permalink)\b/i.test(anchorText)) {
+      return true;
+    }
+    if (anchor.getAttribute?.('rel')?.includes('bookmark')) {
+      return true;
+    }
+    if (anchor.matches?.('.more-link, [class*="more-link" i], [class*="read-more" i]')) {
+      return true;
+    }
+    return false;
+  }
+
+  function isPostTitleLink(anchor, anchorText, isInsideCard) {
+    const isHeading = Boolean(
+      anchor.closest?.('h1, h2, h3, h4, h5, h6') ||
+      anchor.querySelector?.('h1, h2, h3, h4, h5, h6')
+    );
+    if (isHeading && anchorText.length >= 2) return true;
+
+    const hasTitleClass = Boolean(
+      anchor.matches?.(
+        '.title, .titleline > a, .post-title, .entry-title, .card-title, .story-title, .topic-title, .headline, .u-url, [itemprop="headline"], [itemprop="name"]'
+      ) ||
+      anchor.closest?.(
+        '.titleline, .title, .post-title, .entry-title, .card-title, .story-title, .topic-title, .headline'
+      )
+    );
+    if (hasTitleClass && anchorText.length >= 2) return true;
+
+    if (isInsideCard && anchorText.length >= 8) return true;
+
+    return false;
+  }
+
+  function isThumbnailOrMediaLink(anchor, isInsideCard) {
+    const hasMedia = Boolean(anchor.querySelector?.('img, picture, figure, svg'));
+    const hasThumbClass = Boolean(
+      anchor.matches?.('.post-thumbnail, .thumb, [class*="thumbnail" i], [class*="thumb" i]') ||
+      anchor.closest?.('.post-thumbnail, .thumb, [class*="thumbnail" i], [class*="thumb" i]')
+    );
+    return (hasMedia || hasThumbClass) && isInsideCard;
+  }
+
   function resolveGeneric(path, target, currentLoc) {
     if (!path || !Array.isArray(path) || path.length === 0) return null;
     if (!target) return null;
@@ -443,13 +626,13 @@
 
       if (
         el.matches?.(
-          '[aria-haspopup], [aria-expanded], [data-toggle], [data-bs-toggle], [data-target], [data-action]'
+          '[aria-haspopup], [aria-expanded], [data-toggle], [data-bs-toggle], [data-action="collapse"]'
         )
       ) {
         return null;
       }
 
-      if (el.hasAttribute?.('onclick')) {
+      if (el.hasAttribute?.('onclick') && el.tagName !== 'A' && el.tagName !== 'AREA' && el.getAttribute?.('role') !== 'link') {
         return null;
       }
 
@@ -459,17 +642,13 @@
 
       if (
         el.matches?.(
-          'header, nav, footer, aside, form, [role="navigation"], [role="banner"], [role="contentinfo"], [role="menubar"], [role="menu"], [role="search"]'
+          '[aria-label*="share" i], [aria-label*="upvote" i], [aria-label*="downvote" i], [aria-label*="like" i], [aria-label*="bookmark" i], [aria-label*="save" i], .vote, .upvote, .downvote, .voters'
         )
       ) {
         return null;
       }
 
-      if (
-        el.matches?.(
-          '[role="pagination"], [aria-label*="pagination" i], [aria-label*="breadcrumb" i], nav[aria-label*="breadcrumb" i], [class*="breadcrumb" i]'
-        )
-      ) {
+      if (isSiteNavigationLandmark(el)) {
         return null;
       }
 
@@ -478,27 +657,53 @@
 
     let anchor = null;
     for (const el of path) {
-      if (el && el instanceof Element && (el.tagName === 'A' || el.tagName === 'AREA')) {
+      if (
+        el &&
+        el instanceof Element &&
+        (el.tagName === 'A' || el.tagName === 'AREA' || el.getAttribute?.('role') === 'link')
+      ) {
         anchor = el;
         break;
       }
       if (el && (el.tagName === 'BODY' || el.tagName === 'HTML')) break;
     }
 
-    if (!anchor) return null;
+    let cardContainer = null;
+    for (const el of path) {
+      if (el && isCardOrArticleContainer(el)) {
+        cardContainer = el;
+        break;
+      }
+      if (el && (el.tagName === 'BODY' || el.tagName === 'HTML')) break;
+    }
 
-    const rawHref = anchor.getAttribute?.('href') || anchor.href;
+    let rawHref = null;
+    if (anchor) {
+      rawHref =
+        anchor.getAttribute?.('href') ||
+        anchor.getAttribute?.('data-href') ||
+        anchor.getAttribute?.('data-url') ||
+        anchor.href;
+    } else if (cardContainer) {
+      rawHref =
+        cardContainer.getAttribute?.('data-href') ||
+        cardContainer.getAttribute?.('data-url') ||
+        cardContainer.getAttribute?.('data-permalink');
+
+      if (!rawHref) {
+        const titleAnchor = cardContainer.querySelector?.(
+          'h1 a, h2 a, h3 a, h4 a, a.title, a.post-title, a.entry-title, a.card-title, a.story-title, a.headline'
+        );
+        if (titleAnchor) {
+          rawHref = titleAnchor.getAttribute?.('href') || titleAnchor.href;
+          anchor = titleAnchor;
+        }
+      }
+    }
+
     if (!rawHref) return null;
 
-    if (anchor.hasAttribute?.('download')) return null;
-
-    if (
-      anchor.matches?.(
-        '[rel="prev"], [rel="next"], [aria-label*="next page" i], [aria-label*="prev page" i], [aria-label*="pagination" i]'
-      )
-    ) {
-      return null;
-    }
+    if (anchor?.hasAttribute?.('download')) return null;
 
     const currentOrigin = currentLoc && currentLoc.origin && currentLoc.origin !== 'null' ? currentLoc.origin : 'https://example.com';
 
@@ -507,6 +712,15 @@
       parsedUrl = new URL(rawHref, currentLoc ? currentLoc.href : currentOrigin);
     } catch {
       return null;
+    }
+
+    if (urlUtils.unwrapRedirectUrl) {
+      const unwrapped = urlUtils.unwrapRedirectUrl(parsedUrl.href);
+      if (unwrapped !== parsedUrl.href) {
+        try {
+          parsedUrl = new URL(unwrapped);
+        } catch {}
+      }
     }
 
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
@@ -534,32 +748,80 @@
       return null;
     }
 
-    const isInsideArticle = Boolean(anchor.closest?.('article, [role="article"]'));
-    const isHeading = Boolean(
-      anchor.closest?.('h1, h2, h3, h4, h5, h6') ||
-      anchor.querySelector?.('h1, h2, h3, h4, h5, h6')
-    );
+    if (isSocialShareOrActionUrl(parsedUrl)) {
+      return null;
+    }
 
-    const hasMainElement =
-      typeof document !== 'undefined' &&
-      Boolean(document.querySelector?.('main, [role="main"]'));
+    const isInsideCard = Boolean(cardContainer || anchor?.closest?.('article, [role="article"]'));
 
-    const isMainOrFeed =
-      isInsideArticle ||
-      Boolean(anchor.closest?.('main, [role="main"], [role="feed"]')) ||
-      (!hasMainElement && Boolean(anchor.closest?.('body')));
+    let anchorText = (anchor?.textContent || '').trim();
+    if (!anchorText && anchor) {
+      anchorText = (
+        anchor.getAttribute?.('aria-label') ||
+        anchor.getAttribute?.('title') ||
+        anchor.querySelector?.('img')?.getAttribute?.('alt') ||
+        ''
+      ).trim();
+    }
 
-    const anchorText = (anchor.textContent || '').trim();
-    const hasDistinctDestination =
-      !currentLoc ||
-      parsedUrl.origin !== currentLoc.origin ||
-      parsedUrl.pathname !== currentLoc.pathname;
+    if (anchor && isAuthorElementOrLink(anchor, parsedUrl, anchorText)) {
+      return null;
+    }
+
+    if (anchor && isTaxonomyElementOrLink(anchor, parsedUrl)) {
+      return null;
+    }
+
+    if (parsedUrl.pathname === '/from' && parsedUrl.searchParams.has('site')) {
+      return null;
+    }
+    if (parsedUrl.pathname.startsWith('/domain/')) {
+      return null;
+    }
+
+    let hasDistinctDestination = false;
+    if (!currentLoc) {
+      hasDistinctDestination = true;
+    } else if (parsedUrl.origin !== currentLoc.origin || parsedUrl.pathname !== currentLoc.pathname) {
+      hasDistinctDestination = true;
+    } else if (parsedUrl.search !== currentLoc.search) {
+      let currentSearchParams = null;
+      try {
+        currentSearchParams = new URLSearchParams(currentLoc.search || '');
+      } catch {}
+
+      const contentParams = ['id', 'p', 'item', 'topic', 'thread', 'post', 'article', 'story', 'v'];
+      hasDistinctDestination = contentParams.some(
+        (k) =>
+          parsedUrl.searchParams.has(k) &&
+          parsedUrl.searchParams.get(k) !== (currentSearchParams ? currentSearchParams.get(k) : null)
+      );
+    }
 
     let qualifies = false;
-    if (isInsideArticle || isHeading) {
+    if (anchor && isCommentsOrDiscussionLink(anchor, parsedUrl, anchorText) && hasDistinctDestination) {
       qualifies = true;
-    } else if (isMainOrFeed && anchorText.length >= 15 && hasDistinctDestination) {
+    } else if (anchor && isReadMoreOrPermalink(anchor, anchorText) && hasDistinctDestination) {
       qualifies = true;
+    } else if (anchor && isPostTitleLink(anchor, anchorText, isInsideCard) && hasDistinctDestination) {
+      qualifies = true;
+    } else if (anchor && isThumbnailOrMediaLink(anchor, isInsideCard) && hasDistinctDestination) {
+      qualifies = true;
+    } else if (!anchor && cardContainer && hasDistinctDestination) {
+      qualifies = true;
+    } else {
+      const hasMainElement =
+        typeof document !== 'undefined' &&
+        Boolean(document.querySelector?.('main, [role="main"]'));
+
+      const isMainOrFeed =
+        isInsideCard ||
+        Boolean(anchor?.closest?.('main, [role="main"], [role="feed"]')) ||
+        (!hasMainElement && Boolean(anchor?.closest?.('body')));
+
+      if (isMainOrFeed && anchorText.length >= 15 && hasDistinctDestination) {
+        qualifies = true;
+      }
     }
 
     if (!qualifies) {

@@ -10,11 +10,24 @@ const COMMON_TRACKING_KEYS = [
   'utm_campaign',
   'utm_term',
   'utm_content',
+  'utm_id',
+  'utm_source_platform',
   'gclid',
+  'gclsrc',
+  'dclid',
   'fbclid',
   'msclkid',
   'mc_cid',
-  'mc_eid'
+  'mc_eid',
+  'igshid',
+  'ttclid',
+  'twclid',
+  'yclid',
+  '_hsenc',
+  '_hsmi',
+  'mkt_tok',
+  'trk',
+  'trkcampaign'
 ];
 
 const REDDIT_TRACKING_KEYS = new Set([
@@ -162,16 +175,75 @@ function normalizeXPostUrl(urlStr) {
 
 const GENERIC_TRACKING_KEYS = new Set(COMMON_TRACKING_KEYS);
 
-const DOWNLOAD_EXT_REGEX = /\.(pdf|zip|tar|gz|tgz|bz2|7z|rar|dmg|exe|apk|deb|rpm|iso|mp3|mp4|wav|mov|avi|mkv|png|jpe?g|gif|webp|svg|ico|csv|tsv|json|xml|bin|msi)$/i;
+const DOWNLOAD_EXT_REGEX = /\.(pdf|zip|tar|gz|tgz|bz2|7z|rar|dmg|exe|apk|deb|rpm|iso|mp3|mp4|wav|mov|avi|mkv|png|jpe?g|gif|webp|svg|ico|csv|tsv|json|xml|bin|msi|docx?|xlsx?|pptx?|epub|mobi|wasm)$/i;
 
-const AUTH_ACTION_REGEX = /(?:^|\/|_|-)(?:login|signin|sign-in|logout|signout|sign-out|auth|oauth|register|signup|sign-up|password|forgot-password|reset-password|account|profile|cart|checkout|billing|pay|subscribe|unsubscribe|privacy|terms)(?:\/|_|-|$)/i;
+const AUTH_SEGMENTS = new Set([
+  'login',
+  'signin',
+  'sign-in',
+  'log-in',
+  'logout',
+  'signout',
+  'sign-out',
+  'log-out',
+  'signup',
+  'sign-up',
+  'register',
+  'registration',
+  'password',
+  'forgot-password',
+  'reset-password',
+  'change-password',
+  'auth',
+  'oauth',
+  'checkout',
+  'cart',
+  'basket',
+  'billing',
+  'subscribe',
+  'unsubscribe',
+  'my-account',
+  'user-settings',
+  'privacy-policy',
+  'terms-of-service',
+  'terms-of-use',
+  'tos'
+]);
+
+const AUTH_QUERY_KEYS = new Set(['action', 'mode', 'op', 'view', 'do']);
+const AUTH_QUERY_VALUES = new Set(['login', 'signin', 'logout', 'signout', 'signup', 'register', 'auth']);
+
+function unwrapRedirectUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return urlStr;
+  try {
+    const url = new URL(urlStr, 'https://example.com');
+    // Google search redirect wrapper: /url?q=... or /url?url=...
+    if (url.pathname === '/url') {
+      const q = url.searchParams.get('q') || url.searchParams.get('url');
+      if (q && (q.startsWith('http://') || q.startsWith('https://'))) {
+        return q;
+      }
+    }
+    // DuckDuckGo search redirect wrapper: /l/?uddg=...
+    if (url.pathname === '/l/' || url.pathname === '/l') {
+      const uddg = url.searchParams.get('uddg');
+      if (uddg && (uddg.startsWith('http://') || uddg.startsWith('https://'))) {
+        return uddg;
+      }
+    }
+    return urlStr;
+  } catch {
+    return urlStr;
+  }
+}
 
 function normalizeGenericUrl(urlStr, baseOrigin) {
   if (!urlStr || typeof urlStr !== 'string') return null;
 
   try {
+    const unwrapped = unwrapRedirectUrl(urlStr);
     const base = baseOrigin || (typeof window !== 'undefined' && window.location ? window.location.origin : 'https://example.com');
-    const url = new URL(urlStr, base);
+    const url = new URL(unwrapped, base);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       return null;
     }
@@ -197,15 +269,31 @@ function isGenericAuthOrActionUrl(urlStr) {
   if (!urlStr || typeof urlStr !== 'string') return false;
   try {
     const url = new URL(urlStr, 'https://example.com');
-    if (AUTH_ACTION_REGEX.test(url.pathname)) return true;
-    for (const [key, value] of url.searchParams.entries()) {
-      if (
-        (key.toLowerCase() === 'action' || key.toLowerCase() === 'mode' || key.toLowerCase() === 'op' || key.toLowerCase() === 'view') &&
-        AUTH_ACTION_REGEX.test(value)
-      ) {
+    const pathname = url.pathname.toLowerCase();
+
+    if (
+      pathname.endsWith('/wp-login.php') ||
+      pathname.endsWith('/user/login') ||
+      pathname.endsWith('/admin/login')
+    ) {
+      return true;
+    }
+
+    const segments = pathname.split('/').filter(Boolean);
+    for (const seg of segments) {
+      if (AUTH_SEGMENTS.has(seg)) {
         return true;
       }
     }
+
+    for (const [key, value] of url.searchParams.entries()) {
+      const lowerKey = key.toLowerCase();
+      const lowerVal = value.toLowerCase();
+      if (AUTH_QUERY_KEYS.has(lowerKey) && AUTH_QUERY_VALUES.has(lowerVal)) {
+        return true;
+      }
+    }
+
     return false;
   } catch {
     return false;
@@ -310,6 +398,7 @@ const SplitViewUrlUtils = {
   isPostUrl,
   normalizePostUrl,
   normalizeGenericUrl,
+  unwrapRedirectUrl,
   isGenericDownloadUrl,
   isGenericAuthOrActionUrl,
   isRedditPostUrl,
